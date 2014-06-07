@@ -1,0 +1,6 @@
+- Function overrides but doesn't specify override
+- Function overrides but has a redundant virtual
+- A class/struct/union has a move constructor and is returned as const from a function
+- Constructor (can be called with one parameter but) is not explicit
+- Implicit move constructor/assignment not generated (unless they are
+  explicitly deleted)
