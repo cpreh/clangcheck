@@ -1,23 +1,50 @@
 #include <clang/AST/ASTConsumer.h>
-#include <clang/AST/CXXInheritance.h>
 #include <clang/AST/DeclCXX.h> // CXXRecordDecl
 #include <clang/Basic/Diagnostic.h>
 #include <clang/Frontend/CompilerInstance.h>
 #include <clang/Frontend/FrontendPluginRegistry.h>
+#include <algorithm>
+#include <string>
+#include <vector>
 
 // TODO: Figure out which headers we have to include
 
 namespace
 {
 
+typedef
+std::vector<
+	std::string
+>
+namespace_vector;
+
+clang::NamespaceDecl &
+get_outermost_namespace(
+	clang::NamespaceDecl *_decl
+)
+{
+	while(
+		clang::NamespaceDecl *next =
+			clang::dyn_cast<
+				clang::NamespaceDecl
+			>(
+				_decl->getDeclContext()
+			)
+	)
+		_decl = next;
+
+	return
+		*_decl;
+}
+
 class Checker
 :
 	public clang::ASTConsumer
 {
 public:
-	explicit
 	Checker(
-		clang::DiagnosticsEngine &_diagnostics
+		clang::DiagnosticsEngine &_diagnostics,
+		namespace_vector const &_namespaces
 	)
 	:
 		diagnostics_(
@@ -28,6 +55,9 @@ public:
 				clang::DiagnosticsEngine::Warning,
 				"No override"
 			)
+		),
+		namespaces_(
+			_namespaces
 		)
 	{
 	}
@@ -65,22 +95,42 @@ public:
 		)
 			return;
 
-		clang::CXXFinalOverriderMap final_overriders;
-
-		record->getFinalOverriders(
-			final_overriders
+		clang::NamespaceDecl *decl_context(
+			clang::dyn_cast<
+				clang::NamespaceDecl
+			>(
+				record->getDeclContext()
+			)
 		);
 
+		if(
+			decl_context
+			==
+			nullptr
+		)
+			return;
+
+		if(
+			!decl_context->isAnonymousNamespace()
+			&&
+			std::find(
+				namespaces_.begin(),
+				namespaces_.end(),
+				get_outermost_namespace(
+					decl_context
+				).getNameAsString()
+			)
+			==
+			namespaces_.end()
+		)
+			return;
+
 		for(
-			auto const &element
+			clang::CXXMethodDecl const *method
 			:
-			final_overriders
+			record->methods()
 		)
 		{
-			clang::CXXMethodDecl const *method(
-				element.first
-			);
-
 			if(
 				method->size_overridden_methods()
 				==
@@ -105,6 +155,8 @@ private:
 	clang::DiagnosticsEngine &diagnostics_;
 
 	unsigned const no_override_;
+
+	namespace_vector const namespaces_;
 };
 
 class CheckerAction
@@ -121,20 +173,25 @@ protected:
 	{
 		return
 			new Checker(
-				_instance.getDiagnostics()
+				_instance.getDiagnostics(),
+				namespaces_
 			);
 	}
 
 	bool
 	ParseArgs(
 		clang::CompilerInstance const &,
-		std::vector<std::string> const &
+		std::vector<std::string> const &_args
 	)
 	override
 	{
+		namespaces_ = _args;
+
 		return
 			true;
 	}
+
+	namespace_vector namespaces_;
 };
 
 }
