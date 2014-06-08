@@ -1,71 +1,143 @@
-//===- PrintFunctionNames.cpp ---------------------------------------------===//
-//
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
-//
-//===----------------------------------------------------------------------===//
-//
-// Example clang plugin which simply prints the names of all the top-level decls
-// in the input file.
-//
-//===----------------------------------------------------------------------===//
-
-#include <clang/AST/AST.h>
 #include <clang/AST/ASTConsumer.h>
+#include <clang/AST/CXXInheritance.h>
+#include <clang/AST/DeclCXX.h> // CXXRecordDecl
+#include <clang/Basic/Diagnostic.h>
 #include <clang/Frontend/CompilerInstance.h>
 #include <clang/Frontend/FrontendPluginRegistry.h>
-#include <llvm/Support/raw_ostream.h>
-using namespace clang;
 
-namespace {
+// TODO: Figure out which headers we have to include
 
-class PrintFunctionsConsumer : public ASTConsumer {
+namespace
+{
+
+class Checker
+:
+	public clang::ASTConsumer
+{
 public:
-  virtual bool HandleTopLevelDecl(DeclGroupRef DG) {
-    for (DeclGroupRef::iterator i = DG.begin(), e = DG.end(); i != e; ++i) {
-      const Decl *D = *i;
-      if (const NamedDecl *ND = dyn_cast<NamedDecl>(D))
-        llvm::errs() << "top-level-decl: \"" << ND->getNameAsString() << "\"\n";
-    }
+	explicit
+	Checker(
+		clang::DiagnosticsEngine &_diagnostics
+	)
+	:
+		diagnostics_(
+			_diagnostics
+		),
+		no_override_(
+			_diagnostics.getCustomDiagID(
+				clang::DiagnosticsEngine::Warning,
+				"No override"
+			)
+		)
+	{
+	}
 
-    return true;
-  }
+	void
+	HandleTagDeclDefinition(
+		clang::TagDecl *_decl
+	)
+	override
+	{
+		// TODO: Do we need this?
+		clang::TagDecl *definition(
+			_decl->getDefinition()
+		);
+
+		if(
+			definition
+			==
+			nullptr
+		)
+			return;
+
+		clang::CXXRecordDecl *const record(
+			clang::dyn_cast<
+				clang::CXXRecordDecl
+			>(
+				definition
+			)
+		);
+
+		if(
+			record
+			==
+			nullptr
+		)
+			return;
+
+		clang::CXXFinalOverriderMap final_overriders;
+
+		record->getFinalOverriders(
+			final_overriders
+		);
+
+		for(
+			auto const &element
+			:
+			final_overriders
+		)
+		{
+			clang::CXXMethodDecl const *method(
+				element.first
+			);
+
+			if(
+				method->size_overridden_methods()
+				==
+				0u
+				||
+				!method->isUserProvided()
+			)
+				continue;
+
+			if(
+				!method->hasAttr<
+					clang::OverrideAttr
+				>()
+			)
+				diagnostics_.Report(
+					method->getLocation(),
+					no_override_
+				);
+		}
+	}
+private:
+	clang::DiagnosticsEngine &diagnostics_;
+
+	unsigned const no_override_;
 };
 
-class PrintFunctionNamesAction : public PluginASTAction {
+class CheckerAction
+:
+	public clang::PluginASTAction
+{
 protected:
-  ASTConsumer *CreateASTConsumer(CompilerInstance &, llvm::StringRef) {
-    return new PrintFunctionsConsumer();
-  }
+	clang::ASTConsumer *
+	CreateASTConsumer(
+		clang::CompilerInstance &_instance,
+		llvm::StringRef
+	)
+	override
+	{
+		return
+			new Checker(
+				_instance.getDiagnostics()
+			);
+	}
 
-  bool ParseArgs(const CompilerInstance &CI,
-                 const std::vector<std::string>& args) {
-    for (unsigned i = 0, e = args.size(); i != e; ++i) {
-      llvm::errs() << "PrintFunctionNames arg = " << args[i] << "\n";
-
-      // Example error handling.
-      if (args[i] == "-an-error") {
-        DiagnosticsEngine &D = CI.getDiagnostics();
-        unsigned DiagID = D.getCustomDiagID(DiagnosticsEngine::Error,
-                                            "invalid argument '%0'");
-        D.Report(DiagID) << args[i];
-        return false;
-      }
-    }
-    if (args.size() && args[0] == "help")
-      PrintHelp(llvm::errs());
-
-    return true;
-  }
-  void PrintHelp(llvm::raw_ostream& ros) {
-    ros << "Help for PrintFunctionNames plugin goes here\n";
-  }
-
+	bool
+	ParseArgs(
+		clang::CompilerInstance const &,
+		std::vector<std::string> const &
+	)
+	override
+	{
+		return
+			true;
+	}
 };
 
 }
 
-static FrontendPluginRegistry::Add<PrintFunctionNamesAction>
-X("print-fns", "print function names");
+static clang::FrontendPluginRegistry::Add<CheckerAction>
+X("fcppt-check", "Print additional warnings for fcppt");
