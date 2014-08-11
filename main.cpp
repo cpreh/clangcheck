@@ -4,6 +4,7 @@
 #include <clang/Frontend/CompilerInstance.h>
 #include <clang/Frontend/FrontendPluginRegistry.h>
 #include <algorithm>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -164,7 +165,9 @@ class CheckerAction
 	public clang::PluginASTAction
 {
 protected:
-	clang::ASTConsumer *
+	std::unique_ptr<
+		clang::ASTConsumer
+	>
 	CreateASTConsumer(
 		clang::CompilerInstance &_instance,
 		llvm::StringRef
@@ -172,9 +175,13 @@ protected:
 	override
 	{
 		return
-			new Checker(
-				_instance.getDiagnostics(),
-				namespaces_
+			std::unique_ptr<
+				clang::ASTConsumer
+			>(
+				new Checker(
+					_instance.getDiagnostics(),
+					namespaces_
+				)
 			);
 	}
 
