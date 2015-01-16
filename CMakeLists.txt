@@ -78,7 +78,6 @@ target_link_libraries(
 	clangIndex
 	clangLex
 	clangParse
-	clangRewriteCore
 	clangRewriteFrontend
 	clangSema
 	clangSerialization
@@ -101,7 +100,6 @@ target_link_libraries(
 	LLVMipa
 	LLVMipo
 	LLVMIRReader
-	LLVMJIT
 	LLVMLineEditor
 	LLVMLinker
 	LLVMLTO
