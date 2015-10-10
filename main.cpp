@@ -19,13 +19,13 @@ std::vector<
 >
 namespace_vector;
 
-clang::NamespaceDecl &
+clang::NamespaceDecl const &
 get_outermost_namespace(
-	clang::NamespaceDecl *_decl
+	clang::NamespaceDecl const *_decl
 )
 {
 	while(
-		clang::NamespaceDecl *next =
+		clang::NamespaceDecl const *next =
 			clang::dyn_cast<
 				clang::NamespaceDecl
 			>(
@@ -51,10 +51,10 @@ public:
 		diagnostics_(
 			_diagnostics
 		),
-		no_override_(
+		const_return_type_(
 			_diagnostics.getCustomDiagID(
 				clang::DiagnosticsEngine::Warning,
-				"No override"
+				"Return type is const which prevents moving and RVO"
 			)
 		),
 		namespaces_(
@@ -63,29 +63,65 @@ public:
 	{
 	}
 
+	bool
+	HandleTopLevelDecl(
+		clang::DeclGroupRef const _group
+	)
+	override
+	{
+		for(
+			clang::Decl const *decl
+			:
+			_group
+		)
+		{
+			if(
+				this->filter(
+					*decl
+				)
+			)
+				continue;
+
+			clang::FunctionDecl const *const func(
+				clang::dyn_cast<
+					clang::FunctionDecl
+				>(
+					decl
+				)
+			);
+
+			if(
+				func
+				!=
+				nullptr
+			)
+				this->check_function(
+					*func
+				);
+		}
+
+		return
+			true;
+	}
+
 	void
 	HandleTagDeclDefinition(
 		clang::TagDecl *_decl
 	)
 	override
 	{
-		// TODO: Do we need this?
-		clang::TagDecl *definition(
-			_decl->getDefinition()
-		);
-
 		if(
-			definition
-			==
-			nullptr
+			this->filter(
+				*_decl
+			)
 		)
 			return;
 
-		clang::CXXRecordDecl *const record(
+		clang::CXXRecordDecl const *const record(
 			clang::dyn_cast<
 				clang::CXXRecordDecl
 			>(
-				definition
+				_decl
 			)
 		);
 
@@ -96,11 +132,26 @@ public:
 		)
 			return;
 
-		clang::NamespaceDecl *decl_context(
+		for(
+			clang::CXXMethodDecl const *const method
+			:
+			record->methods()
+		)
+			this->check_function(
+				*method
+			);
+	}
+private:
+	bool
+	filter(
+		clang::Decl const &_decl
+	) const
+	{
+		clang::NamespaceDecl const *decl_context(
 			clang::dyn_cast<
 				clang::NamespaceDecl
 			>(
-				record->getDeclContext()
+				_decl.getDeclContext()
 			)
 		);
 
@@ -109,9 +160,10 @@ public:
 			==
 			nullptr
 		)
-			return;
+			return
+				true;
 
-		if(
+		return
 			!decl_context->isAnonymousNamespace()
 			&&
 			std::find(
@@ -122,40 +174,26 @@ public:
 				).getNameAsString()
 			)
 			==
-			namespaces_.end()
-		)
-			return;
-
-		for(
-			clang::CXXMethodDecl const *method
-			:
-			record->methods()
-		)
-		{
-			if(
-				method->size_overridden_methods()
-				==
-				0u
-				||
-				!method->isUserProvided()
-			)
-				continue;
-
-			if(
-				!method->hasAttr<
-					clang::OverrideAttr
-				>()
-			)
-				diagnostics_.Report(
-					method->getLocation(),
-					no_override_
-				);
-		}
+			namespaces_.end();
 	}
-private:
+
+	void
+	check_function(
+		clang::FunctionDecl const &_func
+	)
+	{
+		if(
+			_func.getReturnType().isConstQualified()
+		)
+			diagnostics_.Report(
+				_func.getLocation(),
+				const_return_type_
+			);
+	}
+
 	clang::DiagnosticsEngine &diagnostics_;
 
-	unsigned const no_override_;
+	unsigned const const_return_type_;
 
 	namespace_vector const namespaces_;
 };
@@ -188,11 +226,14 @@ protected:
 	bool
 	ParseArgs(
 		clang::CompilerInstance const &,
-		std::vector<std::string> const &_args
+		std::vector<
+			std::string
+		> const &_args
 	)
 	override
 	{
-		namespaces_ = _args;
+		namespaces_ =
+			_args;
 
 		return
 			true;
