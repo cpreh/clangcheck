@@ -92,7 +92,6 @@ target_link_libraries(
 	LLVMBitWriter
 	LLVMCodeGen
 	LLVMCore
-	LLVMDebugInfo
 	LLVMExecutionEngine
 	LLVMInstCombine
 	LLVMInstrumentation
